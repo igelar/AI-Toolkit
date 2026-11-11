@@ -7,6 +7,10 @@ const CLIENT_ID: &str = "mcode-public";
 const APP_VERSION: &str = "0.6.9";
 const SIGNIN_STATUS: &str = "/minimax-cloud/api/v1/signin/status";
 const SIGNIN_CLAIM: &str = "/minimax-cloud/api/v1/signin/claim";
+const CREDIT_DETAILS: &str = "/minimax-cloud/api/v1/credit/details";
+// The upstream rejects page sizes above 100.
+const CREDIT_PAGE_SIZE: &str = "100";
+const CREDIT_MAX_PAGES: usize = 10;
 
 pub(super) fn account_origin(region: CreditRegion) -> &'static str {
     match region {
@@ -272,14 +276,15 @@ pub(super) async fn refresh(
     token_credentials(&value, c)
 }
 
-fn balance_snapshot(value: &Value) -> Result<ProviderSnapshot, ProviderError> {
+fn balance_snapshot(value: &Value, packs: Vec<CreditPack>) -> Result<ProviderSnapshot, ProviderError> {
     let membership = data(value);
     let remaining = membership
         .get("op_credit_summary")
         .and_then(|summary| num(summary, &["total_remaining_amount"]))
         .or_else(|| num(membership, &["opcredit_balance", "total_remains_credit"]))
         .filter(|amount| amount.is_finite() && *amount >= 0.0);
-    let mut result = snapshot(vec![], vec![], vec![], None);
+    let mut result = snapshot(packs, vec![], vec![], None);
+    // The membership summary is authoritative; credit grants only describe expiry.
     result.balance = remaining;
     if remaining.is_none() {
         return Err(ProviderError::new(
@@ -288,6 +293,59 @@ fn balance_snapshot(value: &Value) -> Result<ProviderSnapshot, ProviderError> {
         ));
     }
     Ok(result)
+}
+fn credit_pack_name(credit_type: Option<f64>) -> &'static str {
+    match credit_type {
+        Some(1.0) => "购买积分",
+        Some(2.0) => "签到赠送积分",
+        _ => "积分包",
+    }
+}
+/// Parse the account's credit grants. Each grant carries its own expiry; the
+/// membership summary stays authoritative for the balance.
+fn parse_credit_grants(v: &Value) -> Vec<CreditPack> {
+    let mut out = vec![];
+    for (index, row) in data(v)["details"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let credit_type = num(row, &["credit_type"]);
+        let granted_at = row.get("granted_at_ms").and_then(epoch);
+        out.push(CreditPack {
+            // The grant time is unique per row; the page index would repeat
+            // across pages, so it only identifies rows without a grant time.
+            id: match granted_at {
+                Some(granted) => format!("minimax-{}-{granted}", credit_type.unwrap_or_default()),
+                None => format!("minimax-{}-{index}", credit_type.unwrap_or_default()),
+            },
+            name: credit_pack_name(credit_type).into(),
+            unit: "credits".into(),
+            remaining: num(row, &["remaining_amount"]).map(|n| n.max(0.0)),
+            expires_at: row.get("expire_at_ms").and_then(epoch),
+        });
+    }
+    out
+}
+async fn credit_details(
+    client: &ProviderClient,
+    c: &Credentials,
+) -> Result<Vec<CreditPack>, ProviderError> {
+    let mut out = vec![];
+    for page in 1..=CREDIT_MAX_PAGES {
+        let path = format!(
+            "{CREDIT_DETAILS}?page_number={page}&page_size={CREDIT_PAGE_SIZE}&include_expired=false"
+        );
+        let value = read(client, c, &path, None).await?;
+        let grants = parse_credit_grants(&value);
+        let total = num(&value, &["total_count"]).unwrap_or_default().max(0.0) as usize;
+        out.extend(grants);
+        if out.len() >= total || out.is_empty() {
+            break;
+        }
+    }
+    Ok(out)
 }
 pub(super) async fn balance(
     client: &ProviderClient,
@@ -319,7 +377,14 @@ pub(super) async fn balance(
         Some(&body),
     )
     .await?;
-    balance_snapshot(&membership)
+    // Only the CN region has a verified credit-grant contract; the grant list
+    // describes expiry and never contributes to the balance.
+    let packs = if c.region == CreditRegion::Cn {
+        credit_details(client, c).await?
+    } else {
+        Vec::new()
+    };
+    balance_snapshot(&membership, packs)
 }
 
 fn signin_reward(panel: &Value) -> Result<Reward, ProviderError> {
@@ -708,9 +773,9 @@ mod tests {
     #[test]
     fn balances_use_the_summary_once_and_keep_missing_values_unknown() {
         let value = json!({"op_credit_summary":{"total_remaining_amount":"123.5","free_remaining_amount":"100","purchased_remaining_amount":"23.5"},"opcredit_balance":999,"total_remains_credit":9999});
-        assert_eq!(balance_snapshot(&value).unwrap().balance, Some(123.5));
+        assert_eq!(balance_snapshot(&value, vec![]).unwrap().balance, Some(123.5));
         assert_eq!(
-            balance_snapshot(&json!({"data":{"total_remains_credit":0}}))
+            balance_snapshot(&json!({"data":{"total_remains_credit":0}}), vec![])
                 .unwrap()
                 .balance,
             Some(0.0)
@@ -720,8 +785,47 @@ mod tests {
             json!({"opcredit_balance":-1}),
             json!({"opcredit_balance":"NaN"}),
         ] {
-            assert!(balance_snapshot(&invalid).is_err());
+            assert!(balance_snapshot(&invalid, vec![]).is_err());
         }
+    }
+
+    #[test]
+    fn credit_grants_carry_their_expiry_without_replacing_the_summary_balance() {
+        let grants = parse_credit_grants(&json!({"details":[
+            {"credit_type":2,"granted_at_ms":1_794_273_301_938i64,"expire_at_ms":1_796_832_000_000i64,
+                "granted_amount":"1000.00","remaining_amount":"1000.00","consumed_amount":"0.00"},
+            {"credit_type":1,"granted_at_ms":1_793_259_992_496i64,"expire_at_ms":1_824_739_199_999i64,
+                "granted_amount":"2000.00","remaining_amount":"2000.00","consumed_amount":"0.00"},
+            {"credit_type":2,"granted_at_ms":1_793_500_000_000i64,"expire_at_ms":1_796_000_000_000i64,
+                "granted_amount":"400.00","remaining_amount":"199.71","consumed_amount":"200.29"}
+        ]}));
+        assert_eq!(grants.len(), 3);
+        assert_eq!(grants[0].name, "签到赠送积分");
+        assert_eq!(grants[0].expires_at, Some(1_796_832_000_000i64));
+        assert_eq!(grants[0].remaining, Some(1000.0));
+        assert_eq!(grants[0].unit, "credits");
+        assert_eq!(grants[1].name, "购买积分");
+        assert_eq!(grants[1].expires_at, Some(1_824_739_199_999i64));
+        assert_eq!(grants[2].remaining, Some(199.71));
+        assert_ne!(grants[0].id, grants[1].id);
+
+        // The summary stays authoritative even when the grants disagree with it.
+        let snapshot = balance_snapshot(
+            &json!({"op_credit_summary":{"total_remaining_amount":"8981.285"}}),
+            grants,
+        )
+        .unwrap();
+        assert_eq!(snapshot.balance, Some(8981.285));
+        assert_eq!(snapshot.packs.len(), 3);
+
+        // Unknown grant types keep a generic name and missing values stay unknown.
+        let unknown = parse_credit_grants(&json!({"details":[
+            {"credit_type":9,"remaining_amount":"12.5"}
+        ]}));
+        assert_eq!(unknown[0].name, "积分包");
+        assert_eq!(unknown[0].expires_at, None);
+        assert_eq!(unknown[0].remaining, Some(12.5));
+        assert!(parse_credit_grants(&json!({})).is_empty());
     }
 
     #[test]

@@ -127,7 +127,8 @@ test("浮层可左右翻转，窄窗口与四角位置均不超出可视区域",
 test("同账户同 ID 的目录条目按目录优先级去重", () => {
   const { accountModels } = load("../src/components/credits/CreditsPanel.tsx", {
     "@tauri-apps/plugin-shell": {}, "@/components/ui/Modal": {}, "@/components/ui/AgentIcon": {},
-    "@/components/ui/Pressable": {}, "./ModelInfoPopover": {}, "@/hooks/useCredits": {},
+    "@/components/ui/Pressable": {}, "./ModelInfoPopover": {}, "./CreditExpiryPopover": {},
+    "@/hooks/useCredits": {},
     "@/lib/api/credits": {}, sonner: {},
   }, "\nmodule.exports.accountModels = accountModels;");
   const routed = { ...model, contextWindow: 200000 };
@@ -157,6 +158,7 @@ test("每个模型的悬浮、聚焦与点击均关联详情，复制按钮保�
     "@/components/ui/AgentIcon": {},
     "@/components/ui/Pressable": { Pressable: (props) => { copy = props; return React.createElement("button", props); } },
     "./ModelInfoPopover": {},
+    "./CreditExpiryPopover": {},
     "@/hooks/useCredits": {},
     "@/lib/api/credits": {},
     sonner: { toast: { success() {}, error() {} } },

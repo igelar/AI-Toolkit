@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight, CheckCircle2, Coins, Copy, ExternalLink, KeyRound, Loader2,
@@ -10,10 +10,11 @@ import { Modal } from "@/components/ui/Modal";
 import { Pressable } from "@/components/ui/Pressable";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { ModelInfoPopover } from "./ModelInfoPopover";
+import { CreditExpiryPopover, expiryEntries, expirySummary } from "./CreditExpiryPopover";
 import { creditsQueryKey, useCreditsAction, useCreditsDashboard } from "@/hooks/useCredits";
 import {
   creditsApi, type CreditAccount, type CreditDashboard,
-  type CreditModel, type CreditPlatform, type CreditRegion, type OAuthStart, type RewardOutcome,
+  type CreditModel, type CreditPack, type CreditPlatform, type CreditRegion, type OAuthStart, type RewardOutcome,
 } from "@/lib/api/credits";
 
 const platforms: Array<{ id: CreditPlatform; name: string }> = [
@@ -178,6 +179,14 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
   const otherRewards = snapshot?.rewards.filter((reward) => !isCredits(reward.kind) && reward.kind !== "activity") ?? [];
   const busy = refresh.isPending || claim.isPending || toggle.isPending;
   const [showingModels, setShowingModels] = useState(false);
+  const [expiryAnchor, setExpiryAnchor] = useState<HTMLElement | null>(null);
+  const expiry = useMemo(
+    () => expiryEntries(snapshot?.packs ?? [], Date.now()),
+    [snapshot?.packs],
+  );
+  const packUnit = (pack: CreditPack) => pack.unit ?? snapshot?.unit ?? "credits";
+  const packRemaining = (pack: CreditPack) =>
+    pack.remaining == null ? "剩余未知" : `剩余 ${amount(pack.remaining, packUnit(pack))} ${unitName(packUnit(pack))}`;
   return <article className={`glass-card min-w-0 p-5 ${account.enabled ? "" : "opacity-70"}`}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0"><h3 className="truncate text-sm font-semibold">{account.label || platformName(account.platform)}</h3><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{platformName(account.platform)} · {regionName(account.region)} · {account.userId || "账户"}</p></div>
@@ -201,8 +210,16 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
       {account.platform !== "qoder" && otherRewards.length ? <div className="mt-3 rounded-lg bg-slate-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">优惠券及其他奖励</p>{otherRewards.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>打开活动页<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
     </div>
     {account.region === "intl" && snapshot?.packs.length ? <div className="mt-4 space-y-2 border-t border-slate-500/10 pt-3" aria-label="额度明细">{snapshot.packs.map((pack) => <div key={pack.id} className="flex justify-between gap-3 text-xs"><span className="min-w-0 break-words text-slate-500 dark:text-slate-400">{pack.name}</span><span className="shrink-0 tabular-nums">{pack.remaining == null ? "未知" : amount(pack.remaining, pack.unit ?? snapshot.unit)} {unitName(pack.unit ?? snapshot.unit)}</span></div>)}</div> : null}
+    {account.region !== "intl" ? <div className="mt-4 border-t border-slate-500/10 pt-4">
+      <p className="mb-2 text-xs font-medium">即将过期</p>
+      <Pressable type="button" className="flex w-full items-center justify-between gap-3 rounded-lg text-left text-xs text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300" onClick={(event) => setExpiryAnchor(event.currentTarget)} aria-expanded={expiryAnchor != null} aria-label="查看积分包到期时间">
+        <span className="min-w-0 flex-1 break-words">{expirySummary(expiry)}</span>
+        <span className="shrink-0 text-[11px]">查看</span>
+      </Pressable>
+    </div> : null}
     <div className="mt-4 border-t border-slate-500/10 pt-3"><Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" onClick={() => setShowingModels(true)}>可用模型 · {models.length}</Pressable></div>
     {showingModels ? <ModelsModal title="可用模型" groups={[{ title: account.label || platformName(account.platform), entries: models.map((model) => ({ account, model })) }]} onClose={() => setShowingModels(false)} /> : null}
+    {expiryAnchor ? <CreditExpiryPopover anchor={expiryAnchor} entries={expiry} remaining={packRemaining} onDismiss={() => setExpiryAnchor(null)} /> : null}
   </article>;
 }
 
