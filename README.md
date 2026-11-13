@@ -243,6 +243,34 @@ pnpm tauri:build
 
 更多说明：[Agent 适配与配置路径](docs/agent-adapters.md) · [积分与模型代理](docs/credits-proxy.md) · [截图更新与打码规范](docs/screenshots.md)。
 
+## 🌿 分支结构
+
+本仓库 fork 自 [whyfail/AI-Toolkit](https://github.com/whyfail/AI-Toolkit)，采用**双远程 + 镜像 main** 结构：
+
+| 远程 | 地址 | 用途 |
+|---|---|---|
+| `origin` | igelar/AI-Toolkit | 自己的 fork，推送代码 |
+| `upstream` | whyfail/AI-Toolkit | 原仓库，仅拉取更新，**不推送** |
+
+| 分支 | 内容 | 允许的操作 |
+|---|---|---|
+| `main` | 与 `upstream/main` 一致的纯镜像 | 只允许 fast-forward，**禁止直接提交** |
+| `dev` | 主线：上游代码 + 全部自定义功能 | 日常开发、合入功能分支、merge 上游更新 |
+| `feat/*` | 单个功能的临时分支 | 从 `dev` 切出，开发完合回 `dev` 后删除 |
+
+同步上游更新：
+
+```bash
+git checkout main
+git sync              # fetch upstream + fast-forward merge（alias）
+git push origin main
+
+git checkout dev
+git merge main        # 将上游更新带入工作分支
+```
+
+约定：`dev` 为长期分支，用 merge 而非 rebase；上游更新后尽快同步，减少冲突；自定义代码尽量模块化，少改上游核心文件。
+
 ## 🛠️ 技术栈
 
 - **前端**: React 18 · TypeScript · Vite · TailwindCSS · TanStack Query
