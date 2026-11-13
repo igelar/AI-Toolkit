@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight, CheckCircle2, Coins, Copy, ExternalLink, KeyRound, Loader2,
@@ -10,10 +10,11 @@ import { Modal } from "@/components/ui/Modal";
 import { Pressable } from "@/components/ui/Pressable";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { ModelInfoPopover } from "./ModelInfoPopover";
+import { CreditExpiryPopover, expiryEntries, expirySummary } from "./CreditExpiryPopover";
 import { creditsQueryKey, useCreditsAction, useCreditsDashboard } from "@/hooks/useCredits";
 import {
   creditsApi, type CreditAccount, type CreditDashboard,
-  type CreditModel, type CreditPlatform, type CreditRegion, type OAuthStart, type RewardOutcome,
+  type CreditModel, type CreditPack, type CreditPlatform, type CreditRegion, type OAuthStart, type RewardOutcome,
 } from "@/lib/api/credits";
 
 const platforms: Array<{ id: CreditPlatform; name: string }> = [
@@ -21,6 +22,7 @@ const platforms: Array<{ id: CreditPlatform; name: string }> = [
   { id: "traework", name: "TRAE" },
   { id: "qoder", name: "Qoder" },
   { id: "minimax-code", name: "MiniMax Code" },
+  { id: "astudio", name: "AStudio" },
 ];
 const sections = [
   { id: "accounts", label: "账户与积分" },
@@ -178,6 +180,14 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
   const otherRewards = snapshot?.rewards.filter((reward) => !isCredits(reward.kind) && reward.kind !== "activity") ?? [];
   const busy = refresh.isPending || claim.isPending || toggle.isPending;
   const [showingModels, setShowingModels] = useState(false);
+  const [expiryAnchor, setExpiryAnchor] = useState<HTMLElement | null>(null);
+  const expiry = useMemo(
+    () => expiryEntries(snapshot?.packs ?? [], Date.now()),
+    [snapshot?.packs],
+  );
+  const packUnit = (pack: CreditPack) => pack.unit ?? snapshot?.unit ?? "credits";
+  const packRemaining = (pack: CreditPack) =>
+    pack.remaining == null ? "剩余未知" : `剩余 ${amount(pack.remaining, packUnit(pack))} ${unitName(packUnit(pack))}`;
   return <article className={`glass-card min-w-0 p-5 ${account.enabled ? "" : "opacity-70"}`}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0"><h3 className="truncate text-sm font-semibold">{account.label || platformName(account.platform)}</h3><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{platformName(account.platform)} · {regionName(account.region)} · {account.userId || "账户"}</p></div>
@@ -201,8 +211,16 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
       {account.platform !== "qoder" && otherRewards.length ? <div className="mt-3 rounded-lg bg-slate-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">优惠券及其他奖励</p>{otherRewards.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>打开活动页<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
     </div>
     {account.region === "intl" && snapshot?.packs.length ? <div className="mt-4 space-y-2 border-t border-slate-500/10 pt-3" aria-label="额度明细">{snapshot.packs.map((pack) => <div key={pack.id} className="flex justify-between gap-3 text-xs"><span className="min-w-0 break-words text-slate-500 dark:text-slate-400">{pack.name}</span><span className="shrink-0 tabular-nums">{pack.remaining == null ? "未知" : amount(pack.remaining, pack.unit ?? snapshot.unit)} {unitName(pack.unit ?? snapshot.unit)}</span></div>)}</div> : null}
+    {account.region !== "intl" ? <div className="mt-4 border-t border-slate-500/10 pt-4">
+      <p className="mb-2 text-xs font-medium">即将过期</p>
+      <Pressable type="button" className="flex w-full items-center justify-between gap-3 rounded-lg text-left text-xs text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300" onClick={(event) => setExpiryAnchor(event.currentTarget)} aria-expanded={expiryAnchor != null} aria-label="查看积分包到期时间">
+        <span className="min-w-0 flex-1 break-words">{expirySummary(expiry)}</span>
+        <span className="shrink-0 text-[11px]">查看</span>
+      </Pressable>
+    </div> : null}
     <div className="mt-4 border-t border-slate-500/10 pt-3"><Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" onClick={() => setShowingModels(true)}>可用模型 · {models.length}</Pressable></div>
     {showingModels ? <ModelsModal title="可用模型" groups={[{ title: account.label || platformName(account.platform), entries: models.map((model) => ({ account, model })) }]} onClose={() => setShowingModels(false)} /> : null}
+    {expiryAnchor ? <CreditExpiryPopover anchor={expiryAnchor} entries={expiry} remaining={packRemaining} onDismiss={() => setExpiryAnchor(null)} /> : null}
   </article>;
 }
 
@@ -359,11 +377,11 @@ function AddAccountModal({ platform: initialPlatform, onClose }: { platform: Cre
           })}
         </div>
       </fieldset>
-      <fieldset><legend className="mb-2 text-xs font-medium">账号区域</legend><div className="flex gap-2">{(["cn", "intl"] as const).map((value) => <Pressable key={value} type="button" aria-pressed={region === value} disabled={Boolean(flow) || authorizing || importing} className={region === value ? "glass-primary-button text-xs" : "glass-secondary-button text-xs"} onClick={() => { setRegion(value); setFlowError(""); setImportError(""); }}>{regionName(value)}</Pressable>)}</div></fieldset>
+      <fieldset><legend className="mb-2 text-xs font-medium">账号区域</legend><div className="flex gap-2">{(platform === "astudio" ? ["cn"] as const : ["cn", "intl"] as const).map((value) => <Pressable key={value} type="button" aria-pressed={region === value} disabled={Boolean(flow) || authorizing || importing} className={region === value ? "glass-primary-button text-xs" : "glass-secondary-button text-xs"} onClick={() => { setRegion(value); setFlowError(""); setImportError(""); }}>{regionName(value)}</Pressable>)}</div></fieldset>
       {platform === "traework" && region === "intl" ? <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">国际版支持身份与额度查询；模型目录和代理待新版协议验证后开放。</p> : null}
-      {platform === "minimax-code" ? <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">支持积分、每日签到与模型代理，模型和奖励资格以当前账号返回为准。</p> : null}
+      {(platform === "minimax-code" || platform === "astudio") ? <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">支持积分、每日签到与模型代理，模型和奖励资格以当前账号返回为准。</p> : null}
       <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">在浏览器中完成授权</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">授权完成后自动连接账户。</p>{flow ? <div className="mt-4 flex flex-wrap items-center gap-3"><Loader2 size={16} className="animate-spin text-blue-500" /><span className="text-xs">等待授权 · {time(flow.expiresAt)} 到期</span><Pressable type="button" className="glass-secondary-button min-h-7 px-2 py-1 text-xs" onClick={() => { setFlow(null); setFlowError(""); }}>取消</Pressable></div> : <Pressable type="button" className="glass-primary-button mt-4 text-xs" onClick={() => void login()} disabled={authorizing}>{authorizing ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}前往 {platformName(platform)} {regionName(region)} 登录</Pressable>}{flowError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{flowError}</p> : null}</div>
-      {platform === "traework" || platform === "minimax-code" ? <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">从本机 {platformName(platform)} {regionName(region)} 应用一键导入</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">读取本机 {platformName(platform)} {regionName(region)}桌面登录信息{platform === "minimax-code" ? "，兼容 mcode CLI 凭据" : region === "cn" ? "，兼容国内 CLI 凭据" : ""}；无需复制 Token。</p><Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={importing || authorizing || Boolean(flow)} onClick={() => void importLocal()}>{importing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}一键导入本机凭据</Pressable>{importError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{importError}</p> : null}</div> : null}
+      {platform === "traework" || platform === "minimax-code" || platform === "astudio" ? <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">从本机 {platformName(platform)} {regionName(region)} 应用一键导入</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">读取本机 {platformName(platform)} {regionName(region)}桌面登录信息{platform === "minimax-code" ? "，兼容 mcode CLI 凭据" : platform === "astudio" ? "，便携版需设置 ASTUDIO_DATA_DIR 环境变量" : region === "cn" ? "，兼容国内 CLI 凭据" : ""}；无需复制 Token。</p><Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={importing || authorizing || Boolean(flow)} onClick={() => void importLocal()}>{importing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}一键导入本机凭据</Pressable>{importError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{importError}</p> : null}</div> : null}
     </div>
   </Modal>;
 }
@@ -407,7 +425,7 @@ function ProxyView({ data }: { data: CreditDashboard }) {
   const models = availableModels(data);
   const [showingCatalog, setShowingCatalog] = useState(false);
   const catalogGroups: ModelGroup[] = platforms
-    .flatMap((platform) => (["cn", "intl"] as const).map((region) => ({ title: `${platform.name} · ${regionName(region)}`, entries: models.filter(({ account }) => account.platform === platform.id && (account.region ?? "cn") === region) })))
+      .flatMap((platform) => (platform.id === "astudio" ? ["cn"] as const : ["cn", "intl"] as const).map((region) => ({ title: `${platform.name} · ${regionName(region)}`, entries: models.filter(({ account }) => account.platform === platform.id && (account.region ?? "cn") === region) })))
     .filter((group) => group.entries.length);
   return <div className="space-y-5">
     <section className="glass-card p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${data.gateway.running ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-slate-500/10 text-slate-500"}`}><Server size={22} /></span><div><h2 className="text-base font-semibold">本地模型代理</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{data.gateway.running ? "正在运行 · 关闭窗口后继续运行" : "已停止 · 手动开启后供其他工具使用"}</p></div></div><Pressable type="button" className={data.gateway.running ? "glass-secondary-button text-sm" : "glass-primary-button text-sm"} disabled={start.isPending || stop.isPending} onClick={() => data.gateway.running ? stop.mutate(undefined) : start.mutate(undefined)}>{start.isPending || stop.isPending ? <Loader2 size={15} className="animate-spin" /> : <Power size={15} />}{data.gateway.running ? "停止代理" : "一键开启代理"}</Pressable></div>

@@ -9,6 +9,7 @@ import zcode from "@/assets/agents/zcode.png";
 import kimiCode from "@/assets/agents/kimi-code.png";
 import minimaxCode from "@/assets/agents/minimax-code.png";
 import deepseekHarness from "@/assets/agents/deepseek-harness.svg";
+import astudio from "@/assets/agents/astudio.svg";
 import { normalizeToolId } from "@/lib/tools";
 
 const icons: Partial<Record<string, { src: string; darkSrc?: string }>> = {
@@ -25,6 +26,7 @@ const icons: Partial<Record<string, { src: string; darkSrc?: string }>> = {
   "kimi-code": { src: kimiCode },
   "minimax-code": { src: minimaxCode },
   "deepseek-harness": { src: deepseekHarness },
+  astudio: { src: astudio },
 };
 
 export function AgentIcon({ id, name, className = "h-5 w-5" }: { id: string; name: string; className?: string }) {

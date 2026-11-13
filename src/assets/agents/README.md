@@ -14,5 +14,6 @@
 | Kimi Code | `kimi-code.png` | 本机官方 `Kimi Code.app` 1.0.4 随附的 `Contents/Resources/icon.icns`，提取原始 128 × 128 图层 |
 | MiniMax Code | `minimax-code.png` | 本机官方 `MiniMax Code.app` 3.1.1 随附的 `Contents/Resources/icon.icns`，提取原始 128 × 128 图层 |
 | DeepSeek Harness | `deepseek-harness.svg` | [官方站点的蓝色鲸鱼 SVG](https://github.com/deepseek-ai/deepseek-harness/blob/master/website/public/favicon.svg)，原始纯矢量路径，无阴影与像素化边缘设置，适配小尺寸与高 DPI 显示；核对日期 2026-10-22 |
+| AStudio | `astudio.svg` | 讯飞星辰 Agent 桌面客户端品牌图标（Astron Studio），蓝色圆角方形背景配白色星形，代表 Astron 星宿含义；核对日期 2026-11-12 |
 
-来源核对日期：2026-10-15。各图标归对应品牌所有。
+来源核对日期：2026-11-12。各图标归对应品牌所有。

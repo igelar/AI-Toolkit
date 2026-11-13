@@ -18,6 +18,9 @@ struct State {
     minimax_tool_count: usize,
     minimax_usage: Value,
     minimax_finish: Option<String>,
+    astudio_tools: std::collections::HashMap<String, usize>,
+    astudio_tool_count: usize,
+    astudio_usage: Value,
 }
 pub(super) async fn response(
     r: RequestBuilder,
@@ -52,6 +55,9 @@ pub(super) async fn response(
         minimax_tool_count: 0,
         minimax_usage: json!({}),
         minimax_finish: None,
+        astudio_tools: Default::default(),
+        astudio_tool_count: 0,
+        astudio_usage: json!({}),
     };
     Ok(ProviderChat {
         stream: Box::pin(futures::stream::unfold(state, |mut s| async move {
@@ -150,6 +156,10 @@ impl State {
         };
         if self.platform == Platform::MinimaxCode {
             self.parse_minimax(event, &v);
+            return;
+        }
+        if self.platform == Platform::AStudio {
+            self.parse_astudio(event, &v);
             return;
         }
         if self.platform == Platform::Qoder {
@@ -363,6 +373,109 @@ impl State {
             _ => self.fail(ProviderError::new(502, "MiniMax Code 返回了无法识别的流事件")),
         }
     }
+    fn parse_astudio(&mut self, event: &str, value: &Value) {
+        let event = value["type"].as_str().unwrap_or(event);
+        if self.identity.is_none() && !matches!(event, "response.created" | "response.in_progress" | "response.failed") {
+            self.fail(ProviderError::new(502, "AStudio 在模型身份确认前返回了内容"));
+            return;
+        }
+        match event {
+            "response.created" | "response.in_progress" => {
+                let model = text(value, &["model"])
+                    .or_else(|| text(&value["response"], &["model"]));
+                if let Some(model) = model {
+                    // Emit the role chunk only on the first event that establishes identity.
+                    let first = self.identity.is_none();
+                    self.identity = Some(model);
+                    if first {
+                        self.emit(json!({"role":"assistant"}), None, None);
+                    }
+                }
+            }
+            "response.output_text.delta" => {
+                if let Some(delta) = value["delta"].as_str() {
+                    self.emit(json!({"content":delta}), None, None);
+                }
+            }
+            "response.reasoning_summary_text.delta" => {
+                if let Some(delta) = value["delta"].as_str() {
+                    self.emit(json!({"reasoning_content":delta}), None, None);
+                }
+            }
+            "response.output_item.added" => {
+                if value["item"]["type"].as_str() == Some("function_call") {
+                    let Some(item_id) = text(&value["item"], &["id"]).filter(|id| !id.is_empty()) else {
+                        self.fail(ProviderError::new(502, "AStudio 工具调用缺少 item id"));
+                        return;
+                    };
+                    let call_id = text(&value["item"], &["call_id"]).unwrap_or_default();
+                    let name = text(&value["item"], &["name"]).unwrap_or_default();
+                    let index = self.astudio_tool_count;
+                    self.astudio_tool_count += 1;
+                    self.astudio_tools.insert(item_id, index);
+                    let arguments = value["item"]["arguments"].as_str().unwrap_or("");
+                    self.emit(json!({"tool_calls":[{"index":index,"id":call_id,"type":"function",
+                        "function":{"name":name,"arguments":arguments}}]}), None, None);
+                }
+            }
+            "response.function_call_arguments.delta" => {
+                let Some(item_id) = text(value, &["item_id"]).filter(|id| !id.is_empty()) else {
+                    self.fail(ProviderError::new(502, "AStudio 工具参数分片缺少 item_id"));
+                    return;
+                };
+                let Some(index) = self.astudio_tools.get(&item_id).copied() else {
+                    self.fail(ProviderError::new(502, "AStudio 工具参数分片缺少关联块"));
+                    return;
+                };
+                if let Some(arguments) = value["delta"].as_str() {
+                    self.emit(json!({"tool_calls":[{"index":index,"function":{"arguments":arguments}}]}), None, None);
+                }
+            }
+            "response.completed" => {
+                self.update_astudio_usage(&value["response"]["usage"]);
+                let finish = if Self::astudio_output_has_function_call(&value["response"]["output"]) {
+                    "tool_calls"
+                } else {
+                    "stop"
+                };
+                self.emit(json!({}), Some(finish.into()), Some(self.astudio_usage()));
+                self.finished = true;
+                self.ended = true;
+            }
+            "response.incomplete" => {
+                self.update_astudio_usage(&value["response"]["usage"]);
+                let reason = value["response"]["incomplete_details"]["reason"].as_str().unwrap_or("");
+                let finish = if reason == "max_output_tokens" { "length" } else { "stop" };
+                self.emit(json!({}), Some(finish.into()), Some(self.astudio_usage()));
+                self.finished = true;
+                self.ended = true;
+            }
+            "response.failed" => {
+                let mut error = upstream_body_error(502, &value.to_string());
+                error.rejected &= !self.answered;
+                self.fail(error);
+            }
+            _ => {}
+        }
+    }
+    fn update_astudio_usage(&mut self, usage: &Value) {
+        for (field, target) in [("input_tokens","prompt_tokens"), ("output_tokens","completion_tokens")] {
+            if let Some(value) = usage[field].as_u64() {
+                self.astudio_usage[target] = json!(value);
+            }
+        }
+    }
+    fn astudio_usage(&self) -> Value {
+        let input = self.astudio_usage["prompt_tokens"].as_u64().unwrap_or(0);
+        let output = self.astudio_usage["completion_tokens"].as_u64().unwrap_or(0);
+        json!({"prompt_tokens":input,"completion_tokens":output,"total_tokens":input.saturating_add(output)})
+    }
+    // The terminal frame does not distinguish tool calls; finish_reason must be
+    // derived from the output items in the completed response (plan §3.1.5).
+    fn astudio_output_has_function_call(output: &Value) -> bool {
+        output.as_array().into_iter().flatten()
+            .any(|item| item["type"].as_str() == Some("function_call"))
+    }
     fn update_minimax_usage(&mut self, usage: &Value) {
         for field in ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"] {
             if let Some(value) = usage[field].as_u64() { self.minimax_usage[field] = json!(value); }
@@ -438,6 +551,9 @@ mod tests {
             minimax_tool_count: 0,
             minimax_usage: json!({}),
             minimax_finish: None,
+            astudio_tools: Default::default(),
+            astudio_tool_count: 0,
+            astudio_usage: json!({}),
         }
     }
     #[test]
@@ -654,5 +770,65 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
             assert_eq!(error.upstream_request_id.as_deref(), Some("req_upstream_header"));
         }
         server.abort();
+    }
+
+    #[test]
+    fn astudio_stream_maps_deltas_completion_usage_and_identity() {
+        let mut s = state(Platform::AStudio);
+        // identity guard: content before response.created → 502
+        s.parse(b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}");
+        assert!(s.queue.pop_front().unwrap().is_err());
+        assert!(!s.finished);
+        s.parse(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"spark-x2.5\"}}");
+        s.parse(b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}");
+        s.parse(b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" world\"}");
+        s.parse(b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":22,\"output_tokens\":2,\"total_tokens\":24}}}");
+        assert!(s.finished && s.ended);
+        let chunks: Vec<_> = s.queue.into_iter().map(Result::unwrap).collect();
+        assert_eq!(chunks[0].upstream_model.as_deref(), Some("spark-x2.5"));
+        assert_eq!(chunks[0].data["choices"][0]["delta"]["role"], "assistant");
+        let content: String = chunks.iter()
+            .filter_map(|c| c.data["choices"][0]["delta"]["content"].as_str().map(str::to_owned)).collect();
+        assert_eq!(content, "Hello world");
+        let last = &chunks.last().unwrap().data;
+        assert_eq!(last["choices"][0]["finish_reason"], "stop");
+        assert_eq!(last["usage"], json!({"prompt_tokens":22,"completion_tokens":2,"total_tokens":24}));
+    }
+
+    #[test]
+    fn astudio_incomplete_maps_to_length_and_failed_errors_do_not_leak() {
+        let mut s = state(Platform::AStudio);
+        s.parse(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"spark-x2.5\"}}");
+        s.parse(b"event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":10,\"output_tokens\":16}}}");
+        assert!(s.finished && s.ended);
+        let last = s.queue.pop_back().unwrap().unwrap();
+        assert_eq!(last.data["choices"][0]["finish_reason"], "length");
+        assert_eq!(last.data["usage"], json!({"prompt_tokens":10,"completion_tokens":16,"total_tokens":26}));
+
+        let mut s = state(Platform::AStudio);
+        s.parse(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"spark-x2.5\"}}");
+        s.parse(b"event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"fixture-secret\"}}}");
+        let error = s.queue.pop_back().unwrap().unwrap_err();
+        assert_eq!(error.status, 502);
+        assert!(!error.message.contains("fixture-secret"));
+    }
+
+    #[test]
+    fn astudio_tool_call_items_and_argument_deltas() {
+        let mut s = state(Platform::AStudio);
+        s.parse(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"spark-x2.5\"}}");
+        s.parse(b"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"call_id\":\"call-1\",\"name\":\"echo\",\"arguments\":\"\"}}");
+        s.parse(b"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item-1\",\"delta\":\"{\\\"va\"}");
+        s.parse(b"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item-1\",\"delta\":\"lue\\\":42}\"}");
+        s.parse(b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"function_call\",\"id\":\"item-1\",\"call_id\":\"call-1\",\"name\":\"echo\",\"arguments\":\"{\\\"value\\\":42}\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}}");
+        let chunks: Vec<_> = s.queue.into_iter().map(Result::unwrap).collect();
+        let calls: Vec<_> = chunks.iter()
+            .filter_map(|c| c.data["choices"][0]["delta"]["tool_calls"].as_array()).flatten().collect();
+        assert_eq!(calls[0]["id"], "call-1");
+        assert_eq!(calls[0]["function"]["name"], "echo");
+        let args: String = calls.iter()
+            .filter_map(|c| c["function"]["arguments"].as_str().map(str::to_owned)).collect();
+        assert_eq!(args, "{\"value\":42}");
+        assert_eq!(chunks.last().unwrap().data["choices"][0]["finish_reason"], "tool_calls");
     }
 }

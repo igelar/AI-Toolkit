@@ -1396,6 +1396,11 @@ mod tests {
                 accounts.push(a);
             }
         }
+        // AStudio is Cn-only (no Intl deployment); add a single Cn account.
+        let mut astudio = account("astudio", "glm-5.3", now_ms() + 10000);
+        astudio.platform = Platform::AStudio;
+        astudio.region = CreditRegion::Cn;
+        accounts.push(astudio);
         for a in &accounts {
             let model = format!("{}/glm-5.3", a.platform.route_key(a.region));
             let found = candidates(accounts.clone(), &model, true, now_ms());
@@ -1403,7 +1408,7 @@ mod tests {
             assert_eq!(found[0].account.id, a.id);
         }
         let bare = candidates(accounts, "glm-5.3", false, now_ms());
-        assert_eq!(bare.len(), 3);
+        assert_eq!(bare.len(), 4);
         assert!(bare.iter().all(|entry| entry.account.region == CreditRegion::Cn));
     }
 
@@ -2072,7 +2077,7 @@ mod tests {
 
     #[tokio::test]
     async fn store_false_reaches_each_provider_without_requesting_storage() {
-        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder, Platform::AStudio] {
             let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let gateway = GatewayManager::new();
             let status = gateway.start(manager.clone(), 0).await.unwrap();
@@ -2304,7 +2309,7 @@ mod tests {
                 {"type":"image_url","image_url":{"url":format!("data:image/png;base64,{image_data}")}}
             ]}));
         }
-        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder, Platform::AStudio] {
             let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let gateway = GatewayManager::new();
             let status = gateway.start(manager.clone(), 0).await.unwrap();
@@ -2449,7 +2454,7 @@ mod tests {
 
     #[tokio::test]
     async fn messages_images_reach_the_provider_in_user_messages_and_tool_results() {
-        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder, Platform::AStudio] {
             let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let requested = format!("{}/glm-5.3", platform.key());
             for _ in 0..2 {

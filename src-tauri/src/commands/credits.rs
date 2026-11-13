@@ -27,6 +27,8 @@ pub async fn credits_import_local(
                 return Err(message);
             }
         },
+        Platform::AStudio => crate::credits::providers::astudio::local_credentials_for_region(region)?
+            .ok_or_else(|| "本机未找到 AStudio 登录信息，请先登录 AStudio 桌面客户端（便携版需设置 ASTUDIO_DATA_DIR）")?,
         _ => return Err("该平台暂不支持本机导入，请使用官方登录".into()),
     };
     state.credits.retry_secret_access()?;

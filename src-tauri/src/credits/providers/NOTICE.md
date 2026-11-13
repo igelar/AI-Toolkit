@@ -146,6 +146,145 @@ JSON and tool-result Messages SSE; M3.1-Flash low-effort Messages JSON. No execu
 tool or credit claim was run, and no user database was modified. Global accounts,
 image understanding and the complete browser login flow remain unverified.
 
+## AStudio (Astron Studio)
+
+The AStudio adapter implements the protocol contract verified against the
+installed official desktop client 3.6.2 (kernel `@iflytek/astron-code-prod`
+1.0.6-rc.11, Codex branch, Rust native binary) on 2026-11-12. All protocol
+contracts below are backed by live measurement or client code evidence; the
+evidence index lives in `docs/astudio-integration-plan.md` §2 and
+`docs/astudio-responses-sse-capture.txt`.
+
+### Dual-token architecture
+
+AStudio uses two independent tokens stored in a single plaintext session file
+(`userdata/astron-session.json`):
+
+| Token | Shape | Purpose | Auth |
+|---|---|---|---|
+| `token` / `ssoSessionId` | UUID | studio account/credits/popup APIs | Cookie |
+| `modelBearerToken` | JWT (HS256, `{uid, iat, exp}`, ~3 year validity) | volces model catalog + inference | Bearer |
+
+The session file has no `expiresAt` and no `refreshToken`. The file's JWT
+may have been rotated and is rejected by volces endpoints; `refresh()`
+re-reads the file and re-issues the JWT via `POST auth/bearer-token`
+(Cookie-authenticated), returning `data.modelBearerToken`. The adapter's
+`refresh()` always re-issues the JWT, never trusting the file's copy.
+
+SSO session validity is determined by response: HTTP 401/403 or business
+codes **1002/1005** map to a 401 `rejected` error, prompting the user to
+re-login in the official client.
+
+The data directory is resolved as: `ASTUDIO_DATA_DIR` env override (required
+for portable installs), then `dirs::config_dir()/AStudio` (i.e.
+`%APPDATA%/AStudio` on Windows, `~/Library/Application Support/AStudio`
+on macOS). `local_credentials_for_region` returns `Ok(None)` for
+`CreditRegion::Intl` — AStudio has no international deployment.
+
+### Request contracts
+
+**studio** (`https://agent.xfyun.cn/xingchen-studio/`): Cookie + client
+headers. The Cookie header is constructed as:
+
+```
+ssoSessionId=<token>; sso_sessionid=<token>; account_id=<accountId>; token=<token>
+clientType: 21 (win32) / 22 (macOS)
+studioVersion: 3.6.2
+Accept: application/json
+```
+
+The studio envelope is `{flag, code, desc, count, data, traceId}`. Success
+requires `flag === true && code === 0 && data != null`. The adapter
+validates the `flag` field explicitly (the shared `check_business` only
+checks `code`).
+
+**volces** (`https://astronstudio-api-volces-prod.xf-yun.com`): Bearer JWT.
+Envelope `{code, message, traceId, data}`, `code === 0` on success. The
+shared `check_business` applies directly.
+
+> The `maas-api.cn-huabei-1.xf-yun.com` endpoint embedded in the kernel
+> binary is a default template overridden at runtime by the desktop client
+> to the volces `model-gateway/v1` path. Direct maas-api access requires a
+> separate HMAC/apikey auth; Bearer JWT is rejected there. Do not use it.
+
+### Credits (four buckets + spark)
+
+`GET points/balance` returns four buckets plus expiry times:
+
+- `totalBalance` — authoritative total (member + buy + activity), **excludes** spark
+- `memberBalance` / `buyBalance` / `activityBalance` — per-bucket balances
+- `*NextExpireTime` — CST (+8) local datetime strings (`%Y-%m-%dT%H:%M:%S`),
+  parsed locally since `epoch()` does not support the `T` separator
+- `sparkTotalBalance` — independent spark bucket with unit `spark`, no expiry
+
+The balance maps to four `CreditPack` entries (member/buy/activity/spark).
+`totalBalance` is authoritative for the displayed balance; packs describe
+bucket-level detail and expiry.
+
+### Daily sign-in (popup complete)
+
+Sign-in credits are delivered via the popup system, not a dedicated
+sign-in endpoint:
+
+| Action | Method | Path | Body |
+|---|---|---|---|
+| Pending popups | GET | `client-popups/pending` | — |
+| Daily reward | POST | `client-popups/complete` | `{popupId, instanceKey, completed: true}` |
+
+Only `DAILY_REWARD_DIALOG` popups are processed. `claim` (no body) is a
+client-download reward, not daily sign-in. The popup payload is a pure
+notification string with **no `points` field** (measured); the daily credit
+amount is resolved from `membership/me` `planCode` → `membership/plan-config`
+`plans[].dailyLoginPoints` (e.g. TRIAL = 100). `popupId` may be number or
+string (coerced via `Number.isSafeInteger`).
+
+Confirmation model: after `complete`, the popup disappears from `pending`.
+The adapter reads back `pending` once on ambiguous results — popup gone =
+claimed, popup still present = pending (never resubmits). The shared
+`reconcile_claim` is not used because it requires a `status="claimed"`
+reward with the same id, which never appears in the popup-disappear model.
+
+### Model catalog
+
+`GET {volces}/api/v1/model-manager/models` (Bearer JWT) returns
+`data.models[]`. Slugs may contain `/` (e.g. `zhipu/glm-5.3`,
+`moonshot/kimi-k2.8-preview`). The ID charset validation allows `/` alongside
+alphanumerics and `-_.`. Gateway routing uses full-string comparison, so
+`astudio/zhipu/glm-5.3` routes without special handling.
+
+### Inference (Responses API only)
+
+AStudio's upstream supports **only** the OpenAI Responses API. Chat
+Completions returns 404. The adapter converts chat/completions requests to
+Responses format (`astudio_responses.rs`) and maps the Responses SSE event
+sequence in `stream.rs::parse_astudio`:
+
+| Responses event | Output |
+|---|---|
+| `response.created` / `in_progress` | `delta:{role:"assistant"}`, extracts `response.model` as identity |
+| `response.output_text.delta` | `delta:{content:delta}` |
+| `response.reasoning_summary_text.delta` | `delta:{reasoning_content:delta}` |
+| `response.output_item.added` (function_call) | `delta:{tool_calls:[...]}` |
+| `response.function_call_arguments.delta` | `delta:{tool_calls:[...arguments]}` |
+| `response.completed` | `finish_reason:"stop"` + usage |
+| `response.incomplete` | `finish_reason:"length"` (reason=`max_output_tokens`) + usage |
+| `response.failed` | stream error (502) |
+
+There is no `data: [DONE]`; the stream ends on `response.completed` /
+`response.incomplete` / `response.failed`. Usage is converted from
+`{input_tokens, output_tokens, total_tokens}` to
+`{prompt_tokens, completion_tokens, total_tokens}`.
+
+### Differences from MiniMax Code localImport
+
+- No `expiresAt` in the session file; JWT expiry (~3 years) is not SSO validity
+- `refresh()` re-reads the file and re-issues the JWT, not just re-reads
+- Sign-in uses popup `complete` (popup-disappear confirmation), not a
+  dedicated sign-in status/claim pair
+- Inference is Responses API only, requiring a request conversion layer and
+  a dedicated SSE parser branch
+- SSO UUID (Cookie) and model JWT (Bearer) are separate auth domains
+
 MIT License
 
 Copyright (c) 2026 MiniMax Code

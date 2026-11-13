@@ -9,6 +9,7 @@ pub enum Platform {
     Qoder,
     #[serde(rename = "minimax-code")]
     MinimaxCode,
+    AStudio,
 }
 impl Platform {
     pub fn key(self) -> &'static str {
@@ -17,6 +18,7 @@ impl Platform {
             Self::Traework => "traework",
             Self::Qoder => "qoder",
             Self::MinimaxCode => "minimax-code",
+            Self::AStudio => "astudio",
         }
     }
 

@@ -1,6 +1,8 @@
 //! Native CN provider adapters. Protocol references and notices are in providers/NOTICE.md.
 #[path = "oauth.rs"]
 mod oauth;
+pub(crate) mod astudio;
+mod astudio_responses;
 mod qoder;
 pub(crate) mod minimax;
 mod minimax_chat;
@@ -241,6 +243,7 @@ impl ProviderClient {
             Platform::Traework => traework::authenticate(self, c).await,
             Platform::Qoder => qoder::authenticate(self, c).await,
             Platform::MinimaxCode => minimax::authenticate(self, c).await,
+            Platform::AStudio => astudio::authenticate(self, c).await,
         }
     }
     pub async fn refresh_credentials(
@@ -253,6 +256,7 @@ impl ProviderClient {
             Platform::Traework => traework::refresh(self, c).await,
             Platform::Qoder => qoder::refresh(self, c).await,
             Platform::MinimaxCode => minimax::refresh(self, c).await,
+            Platform::AStudio => astudio::refresh(self, c).await,
         }
     }
     pub async fn inspect(
@@ -265,6 +269,7 @@ impl ProviderClient {
             Platform::Traework => traework::inspect(self, c).await,
             Platform::Qoder => qoder::inspect(self, c).await,
             Platform::MinimaxCode => minimax::inspect(self, c).await,
+            Platform::AStudio => astudio::inspect(self, c).await,
         }
     }
     pub(super) async fn inspect_parts(&self, a: &Account, c: &Credentials, scope: Scope) -> Inspection {
@@ -297,6 +302,7 @@ impl ProviderClient {
                     Platform::Traework => traework::balance(self, c).await,
                     Platform::Qoder => qoder::balance(self, c).await,
                     Platform::MinimaxCode => minimax::balance(self, c).await,
+                    Platform::AStudio => astudio::balance(self, c).await,
                 })
             },
             async {
@@ -306,6 +312,7 @@ impl ProviderClient {
                     Platform::Traework => traework::rewards(self, c).await,
                     Platform::Qoder => qoder::rewards(self, c).await,
                     Platform::MinimaxCode => minimax::rewards(self, c).await,
+                    Platform::AStudio => astudio::rewards(self, c).await,
                 })
             },
             async {
@@ -315,6 +322,7 @@ impl ProviderClient {
                     Platform::Traework => traework::models(self, c).await,
                     Platform::Qoder => qoder::models(self, c).await,
                     Platform::MinimaxCode => minimax::models(self, c).await,
+                    Platform::AStudio => astudio::models(self, c).await,
                 })
             },
         );
@@ -330,6 +338,7 @@ impl ProviderClient {
             Platform::Traework => traework::claim(self, a, c).await,
             Platform::Qoder => qoder::claim(self, a, c).await,
             Platform::MinimaxCode => minimax::claim(self, a, c).await,
+            Platform::AStudio => astudio::claim(self, a, c).await,
         }
     }
     pub async fn chat(
@@ -358,6 +367,7 @@ impl ProviderClient {
             Platform::Traework => traework::chat(self, c, m, body).await,
             Platform::Qoder => qoder::chat(self, c, m, body).await,
             Platform::MinimaxCode => minimax::chat(self, c, m, body).await,
+            Platform::AStudio => astudio::chat(self, c, m, body).await,
         }
     }
     async fn json(&self, r: RequestBuilder) -> Result<Value, ProviderError> {

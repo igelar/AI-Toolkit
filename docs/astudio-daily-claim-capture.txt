@@ -1,0 +1,7 @@
+== balance BEFORE activityBalance=1200 totalBalance=1200
+== pending #1 HTTP 200 {"flag":true,"code":0,"desc":"成功","count":null,"data":[{"popupId":2,"popupCode":"DAILY_LOGIN_REWARD_V1","popupType":"BANNER","componentType":"DAILY_REWARD_DIALOG","priority":100,"instanceKey":"20261113","payload":{"confirmText":"知道了","title":"今日登录积分已到账","content":"每日登录积分已发放，可前往积分中心查看。"}}],"traceId":"d7e5e77016be4626830a579a010802b9"}
+== popupId raw type: number value: 2
+== complete #1 HTTP 200 {"flag":true,"code":0,"desc":"成功","count":null,"data":null,"traceId":"9b686a8543b94a7594ad9232965b7934"}
+== pending #2 HTTP 200 {"flag":true,"code":0,"desc":"成功","count":null,"data":[],"traceId":"d86b93e2ba034effb01797b55bd41497"}
+== complete #2 (duplicate) HTTP 200 {"flag":true,"code":0,"desc":"成功","count":null,"data":null,"traceId":"b5496474808a4c13b4a1be0ba4007bde"}
+== balance AFTER activityBalance=1300 totalBalance=1300
