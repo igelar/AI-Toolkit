@@ -1,0 +1,29 @@
+HTTP 200
+
+event: response.created
+data: {"response":{"created_at":1794536821,"id":"cht000ddff9@dx1a1d2bad3a22885503","model":"spark-x2.5","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.in_progress
+data: {"response":{"created_at":1794536821,"id":"cht000ddff9@dx1a1d2bad3a22885503","model":"spark-x2.5","object":"response","output":[],"status":"in_progress"},"sequence_number":1,"type":"response.in_progress"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_26d9d33b5c094a50b7901c37","id":"call_26d9d33b5c094a50b7901c37","name":"get_weather","status":"in_progress","type":"function_call"},"output_index":0,"sequence_number":2,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"city\":\"北京","item_id":"call_26d9d33b5c094a50b7901c37","output_index":0,"sequence_number":3,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"","item_id":"call_26d9d33b5c094a50b7901c37","output_index":0,"sequence_number":4,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"}","item_id":"call_26d9d33b5c094a50b7901c37","output_index":0,"sequence_number":5,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"city\":\"北京\"}","item_id":"call_26d9d33b5c094a50b7901c37","output_index":0,"sequence_number":6,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"city\":\"北京\"}","call_id":"call_26d9d33b5c094a50b7901c37","id":"call_26d9d33b5c094a50b7901c37","name":"get_weather","status":"completed","type":"function_call"},"output_index":0,"sequence_number":7,"type":"response.output_item.done"}
+
+event: response.completed
+data: {"response":{"created_at":1794536821,"id":"cht000ddff9@dx1a1d2bad3a22885503","max_output_tokens":128,"model":"spark-x2.5","object":"response","output":[{"arguments":"{\"city\":\"北京\"}","call_id":"call_26d9d33b5c094a50b7901c37","id":"call_26d9d33b5c094a50b7901c37","name":"get_weather","status":"completed","type":"function_call"}],"output_text":"","reasoning":{"effort":"none"},"status":"completed","usage":{"input_tokens":97,"input_tokens_details":{"cached_tokens":0},"output_tokens":12,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":109},"user":"22093331744"},"sequence_number":8,"type":"response.completed"}
+

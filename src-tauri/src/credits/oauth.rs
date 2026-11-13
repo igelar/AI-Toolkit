@@ -206,6 +206,9 @@ impl ProviderClient {
                 ));
                 url
             }
+            Platform::AStudio => {
+                return Err(ProviderError::new(400, "AStudio 暂不支持网页登录，请使用本机导入"));
+            }
         };
         let mut flows = self.flows.lock().await;
         flows.retain(|_, f| f.expires_at > now_ms());
@@ -574,6 +577,9 @@ impl ProviderClient {
                     c.extra["label"] = json!(label);
                 }
                 Ok(Some(c))
+            }
+            Platform::AStudio => {
+                return Err(ProviderError::new(400, "AStudio 暂不支持网页登录，请使用本机导入"));
             }
         }
     }

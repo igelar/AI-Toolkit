@@ -192,7 +192,11 @@ impl CreditManager {
         if credentials.access_token.trim().is_empty() || credentials.access_token.len() > 65536 {
             return Err("请输入有效的账号凭据".into());
         }
-        let credentials = if platform == Platform::MinimaxCode
+        let credentials = if platform == Platform::AStudio {
+            // The session file's model JWT may have been rotated; always re-issue
+            // it from the local SSO before storing the account.
+            self.provider.refresh_credentials(platform, &credentials).await.map_err(|error| error.message)?
+        } else if platform == Platform::MinimaxCode
             && credentials.expires_at.is_some_and(|expires| expires <= now_ms() + 60_000) {
             self.provider.refresh_credentials(platform, &credentials).await.map_err(|error| error.message)?
         } else { credentials };

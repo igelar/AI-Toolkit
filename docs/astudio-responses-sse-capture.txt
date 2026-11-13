@@ -1,0 +1,57 @@
+HTTP 200
+{"cache-control":"no-cache","connection":"keep-alive","content-type":"text/event-stream","date":"Thu, 12 Nov 2026 08:15:38 GMT","referrer-policy":"strict-origin-when-cross-origin","transfer-encoding":"chunked","via":"kong/1.3.0","x-client-request-id":"48304f81-d06a-4e58-8487-8253843e361a","x-content-type-options":"nosniff","x-frame-options":"DENY","x-gateway-request-id":"3c65a4fb-8bcd-473d-947c-7b474dc286b6","x-kong-proxy-latency":"1","x-kong-upstream-latency":"3081","x-request-id":"850d007b-c414-42a1-9c41-47e8b13c5263"}
+
+event: response.created
+data: {"response":{"created_at":1794471337,"id":"cht000d5896@dx1a1ced39a682885503","model":"spark-x2.5","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.in_progress
+data: {"response":{"created_at":1794471337,"id":"cht000d5896@dx1a1ced39a682885503","model":"spark-x2.5","object":"response","output":[],"status":"in_progress"},"sequence_number":1,"type":"response.in_progress"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"resp_cht000d5896@dx1a1ced39a682885503_0","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":2,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":3,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"Hi","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":4,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"！","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":5,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"很高兴收到","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":6,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"你的","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":7,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"问候，要是","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":8,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"有想","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":9,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"分享的","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":10,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"新鲜","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":11,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"事儿","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":12,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"，或是","item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":13,"type":"response.output_text.delta"}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"sequence_number":14,"text":"Hi！很高兴收到你的问候，要是有想分享的新鲜事儿，或是","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"resp_cht000d5896@dx1a1ced39a682885503_0","output_index":0,"part":{"annotations":[],"text":"Hi！很高兴收到你的问候，要是有想分享的新鲜事儿，或是","type":"output_text"},"sequence_number":15,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"Hi！很高兴收到你的问候，要是有想分享的新鲜事儿，或是","type":"output_text"}],"id":"resp_cht000d5896@dx1a1ced39a682885503_0","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":16,"type":"response.output_item.done"}
+
+event: response.incomplete
+data: {"response":{"created_at":1794471337,"id":"cht000d5896@dx1a1ced39a682885503","incomplete_details":{"reason":"max_output_tokens"},"max_output_tokens":16,"model":"spark-x2.5","object":"response","output":[{"content":[{"annotations":[],"text":"Hi！很高兴收到你的问候，要是有想分享的新鲜事儿，或是","type":"output_text"}],"id":"resp_cht000d5896@dx1a1ced39a682885503_0","role":"assistant","status":"completed","type":"message"}],"output_text":"Hi！很高兴收到你的问候，要是有想分享的新鲜事儿，或是","reasoning":{"effort":"none"},"status":"incomplete","usage":{"input_tokens":22,"input_tokens_details":{"cached_tokens":0},"output_tokens":16,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":38},"user":"22093331744"},"sequence_number":17,"type":"response.incomplete"}
+
