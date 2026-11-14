@@ -348,6 +348,10 @@ pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<V
     }
     Ok(ms)
 }
+/// 官方接口用 year-9999 时间戳表示「永不过期」，映射为 None 以免 UI 显示天文倒计时。
+fn real_expiry(v: &Value) -> Option<i64> {
+    epoch(v).filter(|ms| *ms < 32503680000000) // < 2999-01-01 UTC
+}
 fn parse_packs(v: &Value) -> Vec<CreditPack> {
     let d = data(v);
     let mut out = vec![];
@@ -362,8 +366,8 @@ fn parse_packs(v: &Value) -> Vec<CreditPack> {
                 id: key.into(),
                 name: name.into(),
                 remaining: num(p, &["remaining"]),
-                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(epoch)
-                    .or_else(|| (key == "userQuota").then(|| d.get("expiresAt").or_else(|| d.get("expires_at")).and_then(epoch)).flatten()),
+                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(real_expiry)
+                    .or_else(|| (key == "userQuota").then(|| d.get("expiresAt").or_else(|| d.get("expires_at")).and_then(real_expiry)).flatten()),
             });
         }
     }
@@ -374,7 +378,7 @@ fn parse_packs(v: &Value) -> Vec<CreditPack> {
                 id: text(p, &["id"]).unwrap_or_else(|| format!("dedicated-{i}")),
                 name: text(p, &["name"]).unwrap_or("赠送积分包".into()),
                 remaining: num(p, &["remaining"]),
-                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(epoch),
+                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(real_expiry),
             });
         }
     }
@@ -859,6 +863,24 @@ mod tests {
         assert_eq!(parse_packs(&json!({"user_quota":{"percentage":42}}))[0].remaining, None);
     }
     #[test]
+    fn year_9999_never_expires_sentinel_maps_to_none() {
+        // CN 实测：顶层 expiresAt 为 year-9999 哨兵，套餐积分继承该值，附加积分无到期字段。
+        let quota = json!({
+            "userQuota": {"remaining": 0.0, "total": 100.0, "unit": "credits"},
+            "addOnQuota": {"remaining": 76.0, "total": 100.0, "unit": "credits"},
+            "expiresAt": 253402214400000i64
+        });
+        let ps = parse_packs(&quota);
+        assert_eq!(ps.len(), 2);
+        assert_eq!(ps[0].name, "套餐积分");
+        assert_eq!(ps[0].expires_at, None);
+        assert_eq!(ps[1].name, "附加积分");
+        assert_eq!(ps[1].expires_at, None);
+        // 正常的未来时间戳不受影响。
+        let normal = parse_packs(&json!({"userQuota": {"remaining": 5.0}, "expiresAt": 1_900_000_000_000i64}));
+        assert_eq!(normal[0].expires_at, Some(1_900_000_000_000));
+    }
+    #[test]
     fn reasoning_levels_use_thinking_configuration_instead_of_the_reasoning_badge() {
         let models = parse_models(&json!({"chat":[
             {"key":"dfmodel","enable":true,"is_reasoning":false,"thinking_config":{"disabled":{},"enabled":{"is_default":true,"efforts":{"low":{},"high":{},"max":{"is_default":true}}}}},
@@ -1280,5 +1302,73 @@ mod tests {
             &json!({"userQuota":{"remaining":5},"addOnQuota":{"remaining":7},"dedicatedResourcePackages":[{"remaining":11}]}),
         );
         assert_eq!(snapshot(ps, vec![], vec![], None).balance, Some(23.0));
+    }
+
+    #[tokio::test]
+    #[ignore = "read-only diagnostic: dump the saved Qoder quota/usage structure; no claim or inference"]
+    async fn qoder_local_quota_read_only() {
+        assert_eq!(std::env::var("AI_TOOLKIT_QODER_DIAGNOSTIC").as_deref(), Ok("read-only"));
+        let path = dirs::home_dir().unwrap().join(".ai-toolkit/ai-toolkit.db");
+        let connection = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+        let (id, metadata): (String, String) = connection.query_row(
+            "SELECT a.id,a.metadata FROM credit_accounts a WHERE a.platform='qoder' LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("saved Qoder account available");
+        let account: Account = serde_json::from_str(&metadata).unwrap();
+        assert_eq!(account.region, CreditRegion::Cn);
+        let saved = crate::credits::secrets::SecretStore::new()
+            .get(&id)
+            .unwrap()
+            .expect("saved system credential available");
+        let c: Credentials = serde_json::from_str(&saved).unwrap();
+        let client = ProviderClient::new();
+        let v = client
+            .json(headers(client.http.get(format!("{}/api/v2/quota/usage", api_base(&c))), &c))
+            .await
+            .unwrap();
+        let d = data(&v);
+        // 只输出字段结构，不打印任何凭据或身份值。
+        println!(
+            "top-level keys: {:?}",
+            d.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
+        );
+        for key in ["userQuota", "addOnQuota", "orgResourcePackage"] {
+            if let Some(p) = d.get(key).filter(|p| p.is_object()) {
+                println!("{key} keys: {:?}", p.as_object().unwrap().keys().collect::<Vec<_>>());
+                println!(
+                    "{key} expiresAt present: {}",
+                    p.get("expiresAt")
+                        .or_else(|| p.get("expires_at"))
+                        .map(|v| !v.is_null())
+                        .unwrap_or(false)
+                );
+            }
+        }
+        for key in ["dedicatedResourcePackages", "dedicated_resource_packages"] {
+            if let Some(ps) = d.get(key).and_then(Value::as_array) {
+                for (i, p) in ps.iter().enumerate() {
+                    println!(
+                        "{key}[{i}] keys: {:?}",
+                        p.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
+                    );
+                }
+            }
+        }
+        let packs = parse_packs(&v);
+        for p in &packs {
+            println!(
+                "pack {} remaining={:?} expires_at={:?}",
+                p.name, p.remaining, p.expires_at
+            );
+        }
+        println!(
+            "packs parsed: {} (with expiry: {})",
+            packs.len(),
+            packs.iter().filter(|p| p.expires_at.is_some()).count()
+        );
+        println!("top-level expiresAt epoch: {:?}", d.get("expiresAt").and_then(epoch));
     }
 }
