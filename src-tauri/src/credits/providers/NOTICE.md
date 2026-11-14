@@ -38,6 +38,23 @@ The account's live list supplies campaign IDs; grants use `POST /sash/api/v1/me/
 and uncertain results use the reward/list read APIs. Device proof is read from
 the installed official CN helper, never generated or bypassed by this adapter.
 
+### Qoder credit-pack expiry evidence (2026-11-14, read-only live checks)
+
+`GET /api/v2/quota/usage` (the only billing endpoint the desktop gateway
+exposes) returns no per-pack expiry: `userQuota`/`addOnQuota` objects carry
+only `percentage/remaining/total/unit/used`, and the top-level `expiresAt`
+is a year-9999 sentinel (253402214400000) meaning "never expires" — the
+adapter maps any timestamp >= 2999-01-01 to `None` so the UI never shows a
+countdown to it. The official web console 用量明细 page does display per-pack
+expiry (获赠资源包 · 有效期至), but its data comes from the qoder.cn
+session-cookie API: the SPA's `/api/v1/me/quotas/{key}` and
+`/api/v1/organizations/{id}/(dedicated-)resource-packages/usage/{key}`
+endpoints all answer 404 on `openapi.qoder.com.cn`, and the desktop bearer
+token is rejected (401) on `qoder.cn` same-origin paths. Verified by the
+`qoder_local_quota_read_only` diagnostic. Consequence: with desktop
+credentials the 附加积分 (add-on credits) pack has no obtainable expiry, and
+the account card legitimately shows 暂无到期信息.
+
 The TRAE Work OAuth login shape (IDE client id, authorization-page parameters,
 empty `x-cloudide-token` exchange header, IDE_PC DeviceInfo, callback-echo
 identity) follows the packet-captured implementation in

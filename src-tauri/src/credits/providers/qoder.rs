@@ -1370,5 +1370,33 @@ mod tests {
             packs.iter().filter(|p| p.expires_at.is_some()).count()
         );
         println!("top-level expiresAt epoch: {:?}", d.get("expiresAt").and_then(epoch));
+        // 控制台「用量明细」页使用 /api/v1/me/quotas/{key}；qoder.cn 同源需 Web 会话，
+        // 桌面 token 401。批量试探 openapi 域上可能暴露逐包到期的只读接口。
+        for path in [
+            "/api/v1/me/userplan",
+            "/api/v1/me/usages/big_model_credits/histories",
+            "/api/v2/me/usages/big_model_credits",
+            "/api/v1/me/orders",
+            "/api/v1/me/quota/resource-packages",
+        ] {
+            match client
+                .json(headers(client.http.get(format!("{}{path}", api_base(&c))), &c))
+                .await
+            {
+                Ok(v) => {
+                    let d = data(&v);
+                    println!(
+                        "{path} => keys: {:?}",
+                        d.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
+                    );
+                    for key in ["resourcePackages", "dedicatedResourcePackages", "packs", "packages", "details"] {
+                        if let Some(ps) = d.get(key).and_then(Value::as_array) {
+                            println!("{path} {key}[0] keys: {:?}", ps.first().and_then(|p| p.as_object()).map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default());
+                        }
+                    }
+                }
+                Err(e) => println!("{path} => {}/{}", e.status, e.message),
+            }
+        }
     }
 }
