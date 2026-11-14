@@ -20,17 +20,89 @@ fn astudio_data_dir() -> Result<PathBuf, String> {
     }
     let config = dirs::config_dir().ok_or("无法定位 AStudio 数据目录")?;
     let default = config.join("AStudio");
-    if default.join("userdata").join("astron-session.json").exists() {
-        return Ok(default);
-    }
-    // NSIS 安装版将数据目录放在 %LOCALAPPDATA%\Programs\AStudio Data（便携版仍需 ASTUDIO_DATA_DIR）。
+    let mut candidates = vec![default.clone()];
+    // NSIS 默认布局：数据目录与安装目录同级（<install 的父目录>\AStudio Data）。
     if let Some(local) = dirs::data_local_dir() {
-        let installed = local.join("Programs").join("AStudio Data");
-        if installed.join("userdata").join("astron-session.json").exists() {
-            return Ok(installed);
+        candidates.push(local.join("Programs").join("AStudio Data"));
+    }
+    // 自定义安装路径：从卸载注册表项反查安装目录（便携版仍需 ASTUDIO_DATA_DIR）。
+    for install in windows_install_dirs() {
+        if let Some(parent) = install.parent() {
+            candidates.push(parent.join("AStudio Data"));
+        }
+        candidates.push(install.join("AStudio Data"));
+    }
+    match candidates
+        .into_iter()
+        .find(|dir| dir.join("userdata").join("astron-session.json").exists())
+    {
+        Some(dir) => Ok(dir),
+        None => Ok(default),
+    }
+}
+
+/// Windows 上从卸载注册表项收集 AStudio 安装目录（InstallLocation / DisplayIcon / UninstallString）。
+#[cfg(windows)]
+fn windows_install_dirs() -> Vec<PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    const UNINSTALL: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+    let mut dirs = Vec::new();
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let Ok(hive) = RegKey::predef(root).open_subkey(UNINSTALL) else { continue };
+        for sub in hive.enum_keys().flatten() {
+            let Ok(key) = hive.open_subkey(&sub) else { continue };
+            let is_astudio = key
+                .get_value::<String, _>("DisplayName")
+                .ok()
+                .map(|d| d.to_lowercase().starts_with("astudio"))
+                .unwrap_or(false);
+            if !is_astudio {
+                continue;
+            }
+            if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
+                if !loc.trim().is_empty() {
+                    dirs.push(PathBuf::from(loc.trim()));
+                }
+            }
+            for field in ["DisplayIcon", "UninstallString"] {
+                if let Some(dir) = key
+                    .get_value::<String, _>(field)
+                    .ok()
+                    .and_then(|value| exe_dir(&value))
+                {
+                    dirs.push(dir);
+                }
+            }
         }
     }
-    Ok(default)
+    dirs
+}
+
+/// 从 `DisplayIcon` / `UninstallString` 值中解析出 exe 所在目录。
+#[cfg(windows)]
+fn exe_dir(value: &str) -> Option<PathBuf> {
+    let raw = if let Some(rest) = value.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        value.split(',').next()?
+    };
+    let path = PathBuf::from(raw.trim());
+    if path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("exe"))
+        .unwrap_or(false)
+    {
+        path.parent().map(|p| p.to_path_buf())
+    } else {
+        Some(path)
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_install_dirs() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 fn parse_session(value: &Value) -> Result<Credentials, String> {
