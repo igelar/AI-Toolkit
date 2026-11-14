@@ -19,7 +19,18 @@ fn astudio_data_dir() -> Result<PathBuf, String> {
         });
     }
     let config = dirs::config_dir().ok_or("无法定位 AStudio 数据目录")?;
-    Ok(config.join("AStudio"))
+    let default = config.join("AStudio");
+    if default.join("userdata").join("astron-session.json").exists() {
+        return Ok(default);
+    }
+    // NSIS 安装版将数据目录放在 %LOCALAPPDATA%\Programs\AStudio Data（便携版仍需 ASTUDIO_DATA_DIR）。
+    if let Some(local) = dirs::data_local_dir() {
+        let installed = local.join("Programs").join("AStudio Data");
+        if installed.join("userdata").join("astron-session.json").exists() {
+            return Ok(installed);
+        }
+    }
+    Ok(default)
 }
 
 fn parse_session(value: &Value) -> Result<Credentials, String> {

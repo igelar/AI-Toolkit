@@ -176,9 +176,12 @@ codes **1002/1005** map to a 401 `rejected` error, prompting the user to
 re-login in the official client.
 
 The data directory is resolved as: `ASTUDIO_DATA_DIR` env override (required
-for portable installs), then `dirs::config_dir()/AStudio` (i.e.
-`%APPDATA%/AStudio` on Windows, `~/Library/Application Support/AStudio`
-on macOS). `local_credentials_for_region` returns `Ok(None)` for
+for portable installs), then the first existing candidate among
+`dirs::config_dir()/AStudio` (i.e. `%APPDATA%/AStudio` on Windows,
+`~/Library/Application Support/AStudio` on macOS) and the NSIS install-data
+layout `%LOCALAPPDATA%/Programs/AStudio Data`; existence is decided by
+`userdata/astron-session.json` being present, falling back to the config-dir
+candidate when neither exists. `local_credentials_for_region` returns `Ok(None)` for
 `CreditRegion::Intl` — AStudio has no international deployment.
 
 ### Request contracts
